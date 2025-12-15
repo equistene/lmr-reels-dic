@@ -21,7 +21,7 @@ export default function Home() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Error");
-      const dUrl = `/api/download?file=${encodeURIComponent(data.outFile)}&cleanup=1`;
+      const dUrl = `/api/download?file=${encodeURIComponent(data.outFile)}&workDir=${encodeURIComponent(data.workDir)}&cleanup=1`;
       setDownloadUrl(dUrl);
       setCleanupParams({ file: data.outFile, workDir: data.workDir });
       setStatus("Listo para descargar");
