@@ -23,9 +23,9 @@ export async function POST(req: NextRequest) {
   
   try {
     const body = await req.json();
-    const { url, start, end, title } = body;
+    const { url, start, end, startTime, endTime, title } = body;
     
-    console.log("📄 [API] Request data:", { url, start, end, title });
+    console.log("📄 [API] Request data:", { url, start, end, startTime, endTime, title });
     
     if (!url || start == null || end == null || !title) {
       const error = "Missing required fields: url, start, end, title";
@@ -36,23 +36,42 @@ export async function POST(req: NextRequest) {
       });
     }
     
+    // Validate time range
+    const duration = Math.max(0, Number(end) - Number(start));
+    if (!isFinite(duration) || duration <= 0) {
+      const error = `Invalid time range: start=${start}s, end=${end}s, duration=${duration}s`;
+      console.error("❌ [API] Time validation error:", error);
+      return new Response(JSON.stringify({ error }), { 
+        status: 400,
+        headers: { "content-type": "application/json" }
+      });
+    }
+    
     const workDir = await mkdtemp(join(tmpdir(), "ytclip-"));
     console.log("📁 [API] Created work directory:", workDir);
     
-    const inFile = join(workDir, "input.mp4");
-    const clipFile = join(workDir, "clip.mp4");
+    const extractedFile = join(workDir, "extracted.mp4");
     const outFile = join(workDir, "output_1080x1920.mp4");
 
-    // Download with yt-dlp
-    console.log("📥 [API] Starting yt-dlp download...");
+    // Download and extract specific time range with yt-dlp
+    console.log("📥✂️ [API] Starting yt-dlp download with time extraction...");
+    console.log("🕒 [API] Time range:", { 
+      startTime: startTime || `${start}s`, 
+      endTime: endTime || `${end}s`, 
+      duration: `${duration}s` 
+    });
+    
     {
       const args = [
         url,
         "-f",
         "bestvideo[ext=mp4]+bestaudio[ext=m4a]/mp4",
+        "--download-sections",
+        `*${start}-${end}`,
         "-o",
-        inFile,
+        extractedFile,
       ];
+      
       console.log("📄 [API] yt-dlp command:", "yt-dlp", args.join(" "));
       
       const r = await run("yt-dlp", args);
@@ -69,52 +88,7 @@ export async function POST(req: NextRequest) {
         throw new Error(error);
       }
       
-      console.log("✅ [API] yt-dlp download completed successfully");
-    }
-
-    // Extract clip with ffmpeg
-    console.log("✂️ [API] Starting ffmpeg clip extraction...");
-    {
-      const duration = Math.max(0, Number(end) - Number(start));
-      
-      console.log("📄 [API] Clip parameters:", { start: Number(start), end: Number(end), duration });
-      
-      if (!isFinite(duration) || duration <= 0) {
-        const error = `Invalid time range: start=${start}, end=${end}, duration=${duration}`;
-        console.error("❌ [API] Time range error:", error);
-        throw new Error(error);
-      }
-      
-      const args = [
-        "-y",
-        "-ss",
-        String(start),
-        "-i",
-        inFile,
-        "-t",
-        String(duration),
-        "-c",
-        "copy",
-        clipFile,
-      ];
-      
-      console.log("📄 [API] ffmpeg clip command:", "ffmpeg", args.join(" "));
-      
-      const r = await run("ffmpeg", args);
-      
-      console.log("📄 [API] ffmpeg clip result:", {
-        code: r.code,
-        stdoutLength: r.stdout.length,
-        stderrLength: r.stderr.length
-      });
-      
-      if (r.code !== 0) {
-        const error = `ffmpeg clip failed (code ${r.code}): ${r.stderr.slice(0, 500)}`;
-        console.error("❌ [API] ffmpeg clip error:", error);
-        throw new Error(error);
-      }
-      
-      console.log("✅ [API] ffmpeg clip extraction completed successfully");
+      console.log("✅ [API] yt-dlp extraction completed successfully");
     }
 
     // Convert to 1080x1920 with title text overlay
@@ -126,13 +100,14 @@ export async function POST(req: NextRequest) {
       console.log("📄 [API] Conversion parameters:", {
         title,
         escapedText: text,
-        filterLength: filter.length
+        filterLength: filter.length,
+        inputFile: extractedFile
       });
       
       const args = [
         "-y",
         "-i",
-        clipFile,
+        extractedFile,
         "-vf",
         filter,
         "-c:v",

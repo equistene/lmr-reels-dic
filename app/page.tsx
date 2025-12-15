@@ -1,10 +1,35 @@
 "use client";
 import { useState } from "react";
 
+// Utility functions for time conversion
+function timeToSeconds(timeStr: string): number {
+  const parts = timeStr.split(':').map(p => parseInt(p) || 0);
+  if (parts.length === 1) return parts[0]; // Just seconds
+  if (parts.length === 2) return parts[0] * 60 + parts[1]; // MM:SS
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]; // HH:MM:SS
+  return 0;
+}
+
+function secondsToTime(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  
+  if (h > 0) {
+    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  }
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
+
+function validateTimeFormat(timeStr: string): boolean {
+  const timeRegex = /^(?:\d{1,2}:)?\d{1,2}:\d{2}$|^\d+$/;
+  return timeRegex.test(timeStr);
+}
+
 export default function Home() {
   const [url, setUrl] = useState("");
-  const [start, setStart] = useState("0");
-  const [end, setEnd] = useState("10");
+  const [startTime, setStartTime] = useState("00:00");
+  const [endTime, setEndTime] = useState("00:10");
   const [title, setTitle] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -13,7 +38,45 @@ export default function Home() {
   const [cleanupParams, setCleanupParams] = useState<{ file: string; workDir: string } | null>(null);
 
   async function processVideo() {
-    console.log("🚀 Starting video processing...", { url, start, end, title });
+    console.log("🚀 Starting video processing...", { url, startTime, endTime, title });
+    
+    // Validate time formats
+    if (!validateTimeFormat(startTime) || !validateTimeFormat(endTime)) {
+      const errorMsg = "Formato de tiempo inválido. Usa formato MM:SS o HH:MM:SS (ej: 01:30, 02:45)";
+      console.error("❌ Time format validation error:", { startTime, endTime });
+      setError(errorMsg);
+      setStatus("Error - Formato de tiempo incorrecto");
+      return;
+    }
+    
+    // Convert times to seconds
+    const startSeconds = timeToSeconds(startTime);
+    const endSeconds = timeToSeconds(endTime);
+    
+    console.log("🕒 Time conversion:", { 
+      startTime, 
+      endTime, 
+      startSeconds, 
+      endSeconds, 
+      duration: endSeconds - startSeconds 
+    });
+    
+    // Validate time range
+    if (startSeconds >= endSeconds) {
+      const errorMsg = "El tiempo de inicio debe ser menor al tiempo de fin";
+      console.error("❌ Time range validation error:", { startSeconds, endSeconds });
+      setError(errorMsg);
+      setStatus("Error - Rango de tiempo inválido");
+      return;
+    }
+    
+    if (endSeconds - startSeconds < 1) {
+      const errorMsg = "La duración mínima debe ser de 1 segundo";
+      console.error("❌ Duration validation error:", { duration: endSeconds - startSeconds });
+      setError(errorMsg);
+      setStatus("Error - Duración demasiado corta");
+      return;
+    }
     
     setStatus("Procesando…");
     setError(null);
@@ -26,7 +89,14 @@ export default function Home() {
       const res = await fetch("/api/process", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ url, start: Number(start), end: Number(end), title }),
+        body: JSON.stringify({ 
+          url, 
+          start: startSeconds, 
+          end: endSeconds, 
+          startTime,
+          endTime,
+          title 
+        }),
       });
       
       console.log("📥 Response received:", { status: res.status, ok: res.ok });
@@ -96,13 +166,30 @@ export default function Home() {
         </label>
         <div className="grid grid-cols-2 gap-4">
           <label className="block">
-            <span className="text-sm">Inicio (segundos)</span>
-            <input type="number" className="mt-1 w-full border rounded px-3 py-2" value={start} onChange={(e)=>setStart(e.target.value)} />
+            <span className="text-sm">Inicio</span>
+            <input 
+              type="text" 
+              className="mt-1 w-full border rounded px-3 py-2" 
+              value={startTime} 
+              onChange={(e)=>setStartTime(e.target.value)} 
+              placeholder="00:32"
+            />
+            <span className="text-xs text-gray-500 mt-1 block">Formato: MM:SS o HH:MM:SS</span>
           </label>
           <label className="block">
-            <span className="text-sm">Fin (segundos)</span>
-            <input type="number" className="mt-1 w-full border rounded px-3 py-2" value={end} onChange={(e)=>setEnd(e.target.value)} />
+            <span className="text-sm">Fin</span>
+            <input 
+              type="text" 
+              className="mt-1 w-full border rounded px-3 py-2" 
+              value={endTime} 
+              onChange={(e)=>setEndTime(e.target.value)} 
+              placeholder="02:43"
+            />
+            <span className="text-xs text-gray-500 mt-1 block">Formato: MM:SS o HH:MM:SS</span>
           </label>
+        </div>
+        <div className="text-xs text-blue-600 bg-blue-50 p-2 rounded">
+          💡 Ejemplos: 01:30 (1 min 30s), 02:45 (2 min 45s), 1:23:45 (1h 23m 45s)
         </div>
         <label className="block">
           <span className="text-sm">Título</span>
