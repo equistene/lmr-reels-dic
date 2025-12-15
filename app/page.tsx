@@ -7,29 +7,62 @@ export default function Home() {
   const [end, setEnd] = useState("10");
   const [title, setTitle] = useState("");
   const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [cleanupParams, setCleanupParams] = useState<{ file: string; workDir: string } | null>(null);
 
   async function processVideo() {
+    console.log("🚀 Starting video processing...", { url, start, end, title });
+    
     setStatus("Procesando…");
+    setError(null);
+    setIsProcessing(true);
     setDownloadUrl(null);
+    
     try {
+      console.log("📡 Sending request to /api/process");
+      
       const res = await fetch("/api/process", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ url, start: Number(start), end: Number(end), title }),
       });
+      
+      console.log("📥 Response received:", { status: res.status, ok: res.ok });
+      
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Error");
+      console.log("📄 Response data:", data);
+      
+      if (!res.ok) {
+        const errorMsg = data.error || `HTTP ${res.status}: Error procesando el video`;
+        console.error("❌ API Error:", errorMsg);
+        throw new Error(errorMsg);
+      }
+      
       const dUrl = `/api/download?file=${encodeURIComponent(data.outFile)}&workDir=${encodeURIComponent(data.workDir)}&cleanup=1`;
       setDownloadUrl(dUrl);
       setCleanupParams({ file: data.outFile, workDir: data.workDir });
       setStatus("Listo para descargar");
+      
+      console.log("✅ Video processing completed successfully!", { downloadUrl: dUrl });
+      
       if (Notification && Notification.permission === "granted" && document.hidden) {
         new Notification("Video listo", { body: "Tu video 1080x1920 está listo." });
       }
     } catch (e: any) {
-      setStatus(e.message || "Error procesando");
+      const errorMessage = e.message || "Error procesando el video";
+      console.error("💥 Video processing failed:", {
+        error: e,
+        message: errorMessage,
+        stack: e.stack,
+        timestamp: new Date().toISOString()
+      });
+      
+      setError(errorMessage);
+      setStatus("Error - Revisa la consola para más detalles");
+    } finally {
+      setIsProcessing(false);
     }
   }
 
@@ -40,8 +73,17 @@ export default function Home() {
 
   async function cleanup() {
     if (!cleanupParams) return;
-    await fetch(`/api/download?file=${encodeURIComponent(cleanupParams.file)}&workDir=${encodeURIComponent(cleanupParams.workDir)}`, { method: "DELETE" });
-    setCleanupParams(null);
+    
+    console.log("🧹 Starting cleanup...", cleanupParams);
+    
+    try {
+      const res = await fetch(`/api/download?file=${encodeURIComponent(cleanupParams.file)}&workDir=${encodeURIComponent(cleanupParams.workDir)}`, { method: "DELETE" });
+      console.log("🧹 Cleanup response:", { status: res.status, ok: res.ok });
+      setCleanupParams(null);
+      console.log("✅ Cleanup completed successfully");
+    } catch (e) {
+      console.error("❌ Cleanup failed:", e);
+    }
   }
 
   return (
@@ -66,8 +108,45 @@ export default function Home() {
           <span className="text-sm">Título</span>
           <input className="mt-1 w-full border rounded px-3 py-2" value={title} onChange={(e)=>setTitle(e.target.value)} placeholder="Mi clip" />
         </label>
-        <button onClick={processVideo} className="w-full bg-black text-white rounded py-2">Procesar</button>
-        {status && <p className="text-sm">{status}</p>}
+        <button 
+          onClick={processVideo} 
+          disabled={isProcessing}
+          className={`w-full rounded py-2 transition-colors ${
+            isProcessing 
+              ? "bg-gray-400 cursor-not-allowed text-white" 
+              : "bg-black text-white hover:bg-gray-800"
+          }`}
+        >
+          {isProcessing ? "Procesando..." : "Procesar"}
+        </button>
+        
+        {status && (
+          <div className={`p-3 rounded ${
+            error ? "bg-red-50 border border-red-200" : "bg-blue-50 border border-blue-200"
+          }`}>
+            <p className={`text-sm ${
+              error ? "text-red-700" : "text-blue-700"
+            }`}>{status}</p>
+          </div>
+        )}
+        
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded p-3">
+            <div className="flex items-start">
+              <div className="flex-shrink-0">
+                <span className="text-red-400">⚠️</span>
+              </div>
+              <div className="ml-3">
+                <h3 className="text-sm font-medium text-red-800">Error al procesar</h3>
+                <div className="mt-2 text-sm text-red-700">
+                  <p>{error}</p>
+                  <p className="mt-1 text-xs text-red-600">Revisa la consola del navegador (F12) para más detalles técnicos.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        
         {downloadUrl && (
           <div className="space-y-2">
             <a className="block w-full text-center bg-green-600 text-white rounded py-2" href={downloadUrl}>Descargar video</a>
