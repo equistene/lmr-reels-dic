@@ -1,65 +1,80 @@
-import Image from "next/image";
+"use client";
+import { useState } from "react";
 
 export default function Home() {
+  const [url, setUrl] = useState("");
+  const [start, setStart] = useState("0");
+  const [end, setEnd] = useState("10");
+  const [title, setTitle] = useState("");
+  const [status, setStatus] = useState<string | null>(null);
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [cleanupParams, setCleanupParams] = useState<{ file: string; workDir: string } | null>(null);
+
+  async function processVideo() {
+    setStatus("Procesando…");
+    setDownloadUrl(null);
+    try {
+      const res = await fetch("/api/process", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url, start: Number(start), end: Number(end), title }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Error");
+      const dUrl = `/api/download?file=${encodeURIComponent(data.outFile)}&cleanup=1`;
+      setDownloadUrl(dUrl);
+      setCleanupParams({ file: data.outFile, workDir: data.workDir });
+      setStatus("Listo para descargar");
+      if (Notification && Notification.permission === "granted" && document.hidden) {
+        new Notification("Video listo", { body: "Tu video 1080x1920 está listo." });
+      }
+    } catch (e: any) {
+      setStatus(e.message || "Error procesando");
+    }
+  }
+
+  // Request notification permission on load
+  if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
+    Notification.requestPermission().catch(() => {});
+  }
+
+  async function cleanup() {
+    if (!cleanupParams) return;
+    await fetch(`/api/download?file=${encodeURIComponent(cleanupParams.file)}&workDir=${encodeURIComponent(cleanupParams.workDir)}`, { method: "DELETE" });
+    setCleanupParams(null);
+  }
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="min-h-screen bg-zinc-50 text-zinc-900 p-6">
+      <div className="max-w-xl mx-auto bg-white rounded-xl shadow p-6 space-y-4">
+        <h1 className="text-2xl font-semibold">YT → 1080x1920</h1>
+        <label className="block">
+          <span className="text-sm">URL de YouTube</span>
+          <input className="mt-1 w-full border rounded px-3 py-2" value={url} onChange={(e)=>setUrl(e.target.value)} placeholder="https://www.youtube.com/watch?v=..." />
+        </label>
+        <div className="grid grid-cols-2 gap-4">
+          <label className="block">
+            <span className="text-sm">Inicio (segundos)</span>
+            <input type="number" className="mt-1 w-full border rounded px-3 py-2" value={start} onChange={(e)=>setStart(e.target.value)} />
+          </label>
+          <label className="block">
+            <span className="text-sm">Fin (segundos)</span>
+            <input type="number" className="mt-1 w-full border rounded px-3 py-2" value={end} onChange={(e)=>setEnd(e.target.value)} />
+          </label>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+        <label className="block">
+          <span className="text-sm">Título</span>
+          <input className="mt-1 w-full border rounded px-3 py-2" value={title} onChange={(e)=>setTitle(e.target.value)} placeholder="Mi clip" />
+        </label>
+        <button onClick={processVideo} className="w-full bg-black text-white rounded py-2">Procesar</button>
+        {status && <p className="text-sm">{status}</p>}
+        {downloadUrl && (
+          <div className="space-y-2">
+            <a className="block w-full text-center bg-green-600 text-white rounded py-2" href={downloadUrl}>Descargar video</a>
+            <button onClick={cleanup} className="w-full text-sm text-zinc-600 underline">Borrar temporales</button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
